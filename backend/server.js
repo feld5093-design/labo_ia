@@ -142,11 +142,8 @@ function scan(qr, roomId, requestedComputerId, user) {
   if (ongoing) {
     ongoing.status = 'completed'; ongoing.exitAt = now(); ongoing.durationMinutes = Math.max(0, Math.round((Date.parse(ongoing.exitAt) - Date.parse(ongoing.entryAt)) / 60000));
     if (ongoing.computerId) { const pc = db.computers.find(c => c.id === ongoing.computerId); if (pc && pc.status === 'occupied') pc.status = 'available'; }
- main
-    db.logs.push({ id: id(), action: 'exit', personId: person.id, qr, at: now(), agentId: user.id }); save(db);
-    return { action: 'exit', message: `Sortie enregistrée pour ${personName(person)}.`, session: enrichSession(ongoing), person: personSummary(person) }
     db.logs.push({ id: id(), sessionId: ongoing.id, action: 'exit', personId: person.id, qr, roomId: ongoing.roomId, computerId: ongoing.computerId, at: ongoing.exitAt, agentId: user.id }); save(db);
-    return { action: 'exit', message: `Sortie enregistrée pour ${personName(person)}.`, session: enrichSession(ongoing) }; main
+   return { action: 'exit', message: `Sortie enregistrée pour ${personName(person)}.`, session: enrichSession(ongoing) };
   }
   const room = db.rooms.find(r => r.id === roomId); if (!room) throw new Error('Salle invalide.');
   if (db.accessSessions.filter(s => s.roomId === roomId && s.status === 'active').length >= room.capacity) throw new Error('La capacité de la salle est atteinte.');
@@ -154,11 +151,8 @@ function scan(qr, roomId, requestedComputerId, user) {
   if (requestedComputerId !== 'private' && requestedComputerId) { const pc = db.computers.find(c => c.id === requestedComputerId && c.roomId === roomId); if (!pc || pc.status !== 'available') throw new Error('Ce poste n’est plus disponible.'); pc.status = 'occupied'; computerId = pc.id; }
   const entry = { id: id(), personId: person.id, roomId, computerId, computerType: computerId ? 'lab' : 'private', entryAt: now(), exitAt: null, durationMinutes: null, status: 'active', agentId: user.id };
 
-  main
-  db.accessSessions.push(entry); db.logs.push({ id: id(), action: 'entry', personId: person.id, qr, at: now(), agentId: user.id }); save(db);
-  return { action: 'entry', message: `Entrée autorisée pour ${personName(person)}.`, session: enrichSession(entry), person: personSummary(person) };
   db.accessSessions.push(entry); db.logs.push({ id: id(), sessionId: entry.id, action: 'entry', personId: person.id, qr, roomId: entry.roomId, computerId: entry.computerId, at: entry.entryAt, agentId: user.id }); save(db);
-  return { action: 'entry', message: `Entrée autorisée pour ${personName(person)}.`, session: enrichSession(entry) }; main
+  return { action: 'entry', message: `Entrée autorisée pour ${personName(person)}.`, session: enrichSession(entry) };
 }
 function staticFile(req, res) {
   const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
@@ -186,7 +180,6 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && route === '/api/auth/logout') { const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, ''); sessions.delete(token); return respond(res, 200, { success: true }); }
     if (method === 'GET' && route === '/api/auth/me') { const user = auth(req, res); if (user) respond(res, 200, { success: true, data: user }); return; }
     const user = auth(req, res); if (!user) return;
- main
     if (method === 'GET' && route === '/api/dashboard') return respond(res, 200, { success: true, data: dashboard() });
     if (method === 'GET' && route === '/api/people') return respond(res, 200, { success: true, data: listPeople() });
     if (method === 'POST' && route === '/api/people') { if (user.role !== 'admin') return error(res, 403, 'Réservé aux administrateurs.'); const input = await body(req); const problem = validatePerson(input); if (problem) return error(res, 400, problem); if (input.photoData && !/^data:image\/(jpeg|png);base64,/.test(input.photoData)) return error(res, 400, 'Format de photo invalide.'); const person = { id: id(), type: input.type, matricule: input.matricule.trim(), firstName: input.firstName.trim(), lastName: input.lastName.trim(), email: input.email?.trim() || '', faculty: input.faculty?.trim() || '', promotion: input.promotion?.trim() || '', department: input.department?.trim() || '', photoData: input.photoData || null, active: true }; db.people.push(person); const card = { id: id(), personId: person.id, qr: qrFor(person.type), status: 'active', issuedAt: now().slice(0, 10) }; db.cards.push(card); save(db); return respond(res, 201, { success: true, data: { ...person, card } }); }
@@ -277,7 +270,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && route === '/api/access-logs') { if (!requirePermission(res, user, 'logs:read')) return; return respond(res, 200, { success: true, data: db.logs.slice().reverse() }); }
     if (method === 'GET' && route === '/api/reservations') { if (!requirePermission(res, user, 'reservations:read')) return; return respond(res, 200, { success: true, data: db.reservations.slice().reverse().map(r => ({ ...r, room: db.rooms.find(x => x.id === r.roomId), professor: findPerson(r.professorId) && { ...findPerson(r.professorId), name: personName(findPerson(r.professorId)) } })) }); }
     if (method === 'POST' && route === '/api/reservations') { if (!requirePermission(res, user, 'reservations:manage')) return; const input = await body(req); const professor = findPerson(input.professorId); const room = db.rooms.find(r => r.id === input.roomId); if (!professor || professor.type !== 'professor' || !room) return error(res, 400, 'Professeur ou salle invalide.'); if (!input.date || !input.startTime || !input.endTime || input.endTime <= input.startTime) return error(res, 400, 'La période de réservation est invalide.'); const conflict = db.reservations.find(r => r.roomId === input.roomId && r.date === input.date && r.status !== 'cancelled' && input.startTime < r.endTime && input.endTime > r.startTime); if (conflict) return error(res, 409, 'Conflit : cette salle est déjà réservée sur ce créneau.'); const reservation = { id: id(), roomId: room.id, professorId: professor.id, date: input.date, startTime: input.startTime, endTime: input.endTime, purpose: String(input.purpose || '').trim(), status: 'confirmed', createdAt: now() }; db.reservations.push(reservation); save(db); return respond(res, 201, { success: true, data: reservation }); }
-    if (method === 'PATCH' && /^\/api\/reservations\/[^/]+$/.test(route)) { if (!requirePermission(res, user, 'reservations:manage')) return; const reservation = db.reservations.find(r => r.id === route.split('/').pop()); const input = await body(req); if (!reservation) return error(res, 404, 'Réservation introuvable.'); if (!['confirmed','cancelled','completed'].includes(input.status)) return error(res, 400, 'Statut invalide.'); reservation.status = input.status; save(db); return respond(res, 200, { success: true, data: reservation }); }main
+    if (method === 'PATCH' && /^\/api\/reservations\/[^/]+$/.test(route)) { if (!requirePermission(res, user, 'reservations:manage')) return; const reservation = db.reservations.find(r => r.id === route.split('/').pop()); const input = await body(req); if (!reservation) return error(res, 404, 'Réservation introuvable.'); if (!['confirmed','cancelled','completed'].includes(input.status)) return error(res, 400, 'Statut invalide.'); reservation.status = input.status; save(db); return respond(res, 200, { success: true, data: reservation }); }
     return error(res, 404, 'Route introuvable.');
   } catch (e) { console.error(e); error(res, e.status || 500, e.message || 'Erreur interne.'); }
 });
